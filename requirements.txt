@@ -1,0 +1,5 @@
+python-telegram-bot[job-queue]
+python-dotenv
+google-genai
+dateparser
+pytz
