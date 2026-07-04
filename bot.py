@@ -1,10 +1,10 @@
 import os
 import sqlite3
 import logging
-from datetime import datetime
+from datetime import datetime, time
+
 import pytz
 import dateparser
-
 from dotenv import load_dotenv
 from google import genai
 
@@ -25,30 +25,32 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("agent")
 
-SYSTEM_PROMPT = """
-You are a helpful personal assistant for one user, via Telegram.
-Always reply in the same language the user writes in.
-If the user writes Hebrew, reply in natural Hebrew.
-If the user writes English, reply in English.
-Be concise.
-If they want reminders, tell them to use the reminder flow.
-If they want tasks, help with task flow.
-"""
+SYSTEM_PROMPT = (
+    "You are a helpful personal assistant for one user via Telegram. "
+    "Always reply in the same language the user writes in. "
+    "If the user writes Hebrew, reply in natural Hebrew. "
+    "If the user writes English, reply in English. "
+    "Be concise."
+)
 
 def init_db():
     con = sqlite3.connect(DB_PATH)
-    con.execute("""CREATE TABLE IF NOT EXISTS reminders(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        text TEXT,
-        due_at TEXT,
-        done INTEGER DEFAULT 0
-    )""")
-    con.execute("""CREATE TABLE IF NOT EXISTS tasks(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        text TEXT,
-        created_at TEXT,
-        done INTEGER DEFAULT 0
-    )""")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS reminders(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT,
+            due_at TEXT,
+            done INTEGER DEFAULT 0
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS tasks(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            text TEXT,
+            created_at TEXT,
+            done INTEGER DEFAULT 0
+        )
+    """)
     con.commit()
     con.close()
 
@@ -99,13 +101,12 @@ def authorized(update: Update) -> bool:
     return bool(update.effective_user and update.effective_user.id == OWNER_ID)
 
 def ask_gemini(user_message: str) -> str:
+    prompt = SYSTEM_PROMPT + "\n\nUser: " + user_message
     resp = client.models.generate_content(
         model="gemini-2.0-flash",
-        contents=[
-            {"role": "user", "parts": [{"text": SYSTEM_PROMPT + "\n\nUser: " + user_message}]}
-        ],
+        contents=prompt,
     )
-    return resp.text or "Sorry, I couldn't generate a reply."
+    return resp.text or "I couldn't generate a reply."
 
 def parse_reminder_time(text: str):
     dt = dateparser.parse(
@@ -114,7 +115,7 @@ def parse_reminder_time(text: str):
         settings={
             "PREFER_DATES_FROM": "future",
             "TIMEZONE": TIMEZONE,
-            "RETURN_AS_TIMEZONE_AWARE": True
+            "RETURN_AS_TIMEZONE_AWARE": True,
         },
     )
     if not dt:
@@ -225,7 +226,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handler))
 
     app.job_queue.run_repeating(check_reminders, interval=60, first=10)
-    app.job_queue.run_daily(daily_summary_job, time=datetime.strptime("10:00", "%H:%M").time(), name="daily_summary")
+    app.job_queue.run_daily(daily_summary_job, time=time(10, 0))
 
     log.info("Bot starting...")
     app.run_polling()
