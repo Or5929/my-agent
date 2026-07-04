@@ -6,7 +6,7 @@ from datetime import datetime, time
 import pytz
 import dateparser
 from dotenv import load_dotenv
-from google import genai
+from openai import OpenAI
 
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
@@ -15,12 +15,17 @@ load_dotenv()
 
 BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 OWNER_ID = int(os.environ["OWNER_TELEGRAM_ID"])
-GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+NARAROUTER_API_KEY = os.environ["NARAROUTER_API_KEY"]
 TIMEZONE = os.environ.get("TIMEZONE", "Asia/Jerusalem")
 DB_PATH = "agent.db"
+MODEL_NAME = os.environ.get("NARAROUTER_MODEL", "deepseek-3.2")
 
 tz = pytz.timezone(TIMEZONE)
-client = genai.Client(api_key=GEMINI_API_KEY)
+
+client = OpenAI(
+    api_key=NARAROUTER_API_KEY,
+    base_url="https://router.naraya.ai/v1",
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -29,11 +34,10 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("agent")
 
 SYSTEM_PROMPT = (
-    "You are a helpful personal assistant for one user via Telegram. "
-    "Always reply in the same language the user writes in. "
-    "If the user writes Hebrew, reply in natural Hebrew. "
-    "If the user writes English, reply in English. "
-    "Be concise."
+    "You are a personal Telegram assistant for one user. "
+    "Reply in the user's language. "
+    "Be brief and practical. "
+    "Use short answers unless asked for detail."
 )
 
 def init_db():
@@ -103,13 +107,21 @@ def complete_task(task_id):
 def authorized(update: Update) -> bool:
     return bool(update.effective_user and update.effective_user.id == OWNER_ID)
 
-def ask_gemini(user_message: str) -> str:
-    prompt = SYSTEM_PROMPT + "\n\nUser: " + user_message
-    resp = client.models.generate_content(
-        model="gemini-2.0-flash",
-        contents=prompt,
-    )
-    return resp.text or "I couldn't generate a reply."
+def ask_model(user_message: str) -> str:
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_message[:1000]},
+            ],
+            temperature=0.4,
+            max_tokens=120,
+        )
+        return response.choices[0].message.content or "I couldn't generate a reply."
+    except Exception as e:
+        log.error(f"Model error: {e}")
+        return "Sorry, I couldn't generate a reply right now."
 
 def parse_reminder_time(text: str):
     dt = dateparser.parse(
@@ -193,8 +205,10 @@ async def summary_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def chat_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not authorized(update):
         return
+    if not update.message or not update.message.text:
+        return
     await update.message.chat.send_action("typing")
-    reply = ask_gemini(update.message.text)
+    reply = ask_model(update.message.text)
     await update.message.reply_text(reply)
 
 async def check_reminders(context: ContextTypes.DEFAULT_TYPE):
