@@ -22,7 +22,10 @@ DB_PATH = "agent.db"
 tz = pytz.timezone(TIMEZONE)
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 log = logging.getLogger("agent")
 
 SYSTEM_PROMPT = (
